@@ -27,7 +27,7 @@ public class Review {
     @JoinColumn(name = "professional_id", nullable = false)
     private Profissional professional;
 
-    @Column(nullable = false, columnDefinition = "TINYINT")
+    @Column(nullable = false, columnDefinition = "SMALLINT")
     private Integer rating;
 
     @Column(columnDefinition = "TEXT")
