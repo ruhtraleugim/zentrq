@@ -5,6 +5,7 @@ import com.spectre.zentrq.cliente.Cliente;
 import com.spectre.zentrq.cliente.ClienteRepository;
 import com.spectre.zentrq.profissional.Profissional;
 import com.spectre.zentrq.profissional.ProfissionalRepository;
+import com.spectre.zentrq.shared.email.EmailService;
 import com.spectre.zentrq.shared.exception.BusinessException;
 import com.spectre.zentrq.shared.exception.ResourceNotFoundException;
 import com.spectre.zentrq.user.User;
@@ -16,6 +17,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -26,8 +32,10 @@ public class AuthServiceImpl implements AuthService {
     private final ProfissionalRepository profissionalRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
+    private final EmailService emailService;
 
     private static final Logger log = LoggerFactory.getLogger(AuthServiceImpl.class);
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     @Override
     @Transactional
@@ -37,23 +45,30 @@ public class AuthServiceImpl implements AuthService {
         if (userRepository.existsByEmail(email)) {
             User existing = userRepository.findByEmail(email).orElseThrow();
             if (!existing.isEmailVerified()) {
-                existing.setEmailVerified(true);
+                String otp = generateOtp();
+                existing.setOtpCode(otp);
+                existing.setOtpExpiresAt(LocalDateTime.now().plusMinutes(15));
                 userRepository.save(existing);
-            } else {
-                throw new BusinessException("Email já cadastrado");
+                sendOtpAsync(email, otp);
+                throw new BusinessException("Email não verificado");
             }
-            return;
+            throw new BusinessException("Email já cadastrado");
         }
+
+        String otp = generateOtp();
+        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(15);
 
         if (request.role() == UserRole.CLIENTE) {
             Cliente cliente = new Cliente();
-            fill(cliente, request, email);
+            fill(cliente, request, email, otp, expiresAt);
             clienteRepository.save(cliente);
         } else {
             Profissional prof = new Profissional();
-            fill(prof, request, email);
+            fill(prof, request, email, otp, expiresAt);
             profissionalRepository.save(prof);
         }
+
+        sendOtpAsync(email, otp);
     }
 
     @Override
@@ -62,6 +77,14 @@ public class AuthServiceImpl implements AuthService {
         String email = normalize(request.email());
         User user = userRepository.findByEmail(email)
             .orElseThrow(() -> new ResourceNotFoundException("Usuário não encontrado"));
+
+        if (!request.otp().equals(user.getOtpCode())) {
+            throw new BusinessException("Código inválido");
+        }
+        if (user.getOtpExpiresAt() == null || LocalDateTime.now().isAfter(user.getOtpExpiresAt())) {
+            throw new BusinessException("Código expirado");
+        }
+
         user.setEmailVerified(true);
         user.setOtpCode(null);
         user.setOtpExpiresAt(null);
@@ -72,8 +95,17 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public void resendOtp(String email) {
-        userRepository.findByEmail(normalize(email))
+        String normalizedEmail = normalize(email);
+        User user = userRepository.findByEmail(normalizedEmail)
             .orElseThrow(() -> new ResourceNotFoundException("Usuário não encontrado"));
+        if (user.isEmailVerified()) {
+            throw new BusinessException("Email já verificado");
+        }
+        String otp = generateOtp();
+        user.setOtpCode(otp);
+        user.setOtpExpiresAt(LocalDateTime.now().plusMinutes(15));
+        userRepository.save(user);
+        sendOtpAsync(normalizedEmail, otp);
     }
 
     @Override
@@ -90,15 +122,30 @@ public class AuthServiceImpl implements AuthService {
         return new AuthResponse(jwtService.generateToken(user), user.getRole().name());
     }
 
-    private void fill(User user, RegisterRequest req, String email) {
+    private void fill(User user, RegisterRequest req, String email, String otp, LocalDateTime expiresAt) {
         user.setName(req.name());
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(req.password()));
         user.setRole(req.role());
-        user.setEmailVerified(true);
+        user.setOtpCode(otp);
+        user.setOtpExpiresAt(expiresAt);
+    }
+
+    private void sendOtpAsync(String email, String otp) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try { emailService.sendOtp(email, otp); }
+                catch (Exception e) { log.warn("OTP email failed for {}: {}", email, e.getMessage()); }
+            }
+        });
     }
 
     private String normalize(String email) {
         return email == null ? null : email.trim().toLowerCase();
+    }
+
+    private String generateOtp() {
+        return String.format("%06d", RANDOM.nextInt(1_000_000));
     }
 }
