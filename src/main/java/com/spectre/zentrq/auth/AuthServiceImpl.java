@@ -41,6 +41,22 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public void register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
+            User existing = userRepository.findByEmail(request.email()).orElseThrow();
+            if (!existing.isEmailVerified()) {
+                String otp = generateOtp();
+                existing.setOtpCode(otp);
+                existing.setOtpExpiresAt(LocalDateTime.now().plusMinutes(15));
+                userRepository.save(existing);
+                String emailTo = request.email();
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try { emailService.sendOtp(emailTo, otp); }
+                        catch (Exception e) { log.warn("OTP resend failed for {}: {}", emailTo, e.getMessage()); }
+                    }
+                });
+                throw new BusinessException("Email não verificado");
+            }
             throw new BusinessException("Email já cadastrado");
         }
         String otp = generateOtp();
