@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: zentrq
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: ABACATEPAY_KEY
+        sync: false
+      - key: ABACATEPAY_BASE_URL
+        value: https://api.abacatepay.com
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
