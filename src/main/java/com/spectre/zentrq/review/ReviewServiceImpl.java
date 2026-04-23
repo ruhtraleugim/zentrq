@@ -55,7 +55,7 @@ public class ReviewServiceImpl implements ReviewService {
         review.setJob(job);
         review.setClient(cliente);
         review.setProfessional(professional);
-        review.setRating(request.rating());
+        review.setRating(request.rating().shortValue());
         review.setComment(request.comment());
         reviewRepository.save(review);
 
