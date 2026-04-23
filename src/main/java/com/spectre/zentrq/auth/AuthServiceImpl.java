@@ -45,30 +45,39 @@ public class AuthServiceImpl implements AuthService {
         if (userRepository.existsByEmail(email)) {
             User existing = userRepository.findByEmail(email).orElseThrow();
             if (!existing.isEmailVerified()) {
+                /* OTP DISABLED — auto-verify existing unverified user
                 String otp = generateOtp();
                 existing.setOtpCode(otp);
                 existing.setOtpExpiresAt(LocalDateTime.now().plusMinutes(15));
                 userRepository.save(existing);
                 sendOtpAsync(email, otp);
                 throw new BusinessException("Email não verificado");
+                */
+                existing.setEmailVerified(true);
+                userRepository.save(existing);
+                return;
             }
             throw new BusinessException("Email já cadastrado");
         }
 
+        /* OTP DISABLED — auto-verify on register
         String otp = generateOtp();
         LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(15);
+        */
 
         if (request.role() == UserRole.CLIENTE) {
             Cliente cliente = new Cliente();
-            fill(cliente, request, email, otp, expiresAt);
+            /* OTP DISABLED */ fill(cliente, request, email, null, null);
             clienteRepository.save(cliente);
         } else {
             Profissional prof = new Profissional();
-            fill(prof, request, email, otp, expiresAt);
+            /* OTP DISABLED */ fill(prof, request, email, null, null);
             profissionalRepository.save(prof);
         }
 
+        /* OTP DISABLED
         sendOtpAsync(email, otp);
+        */
     }
 
     @Override
@@ -129,6 +138,7 @@ public class AuthServiceImpl implements AuthService {
         user.setRole(req.role());
         user.setOtpCode(otp);
         user.setOtpExpiresAt(expiresAt);
+        user.setEmailVerified(otp == null); /* OTP DISABLED: auto-verify when no OTP */
     }
 
     private void sendOtpAsync(String email, String otp) {
